@@ -1,7 +1,20 @@
+# Rust
 /target/
-/Cargo.lock
-*.log
+**/*.rs.bk
+Cargo.lock
+
+# IDE
 /.idea/
 /.vscode/
-**/*.rs.bk
+*.swp
+*.swo
 
+# Системные
+.DS_Store
+Thumbs.db
+
+# Логи
+*.log
+
+# Временные файлы
+*.tmp
