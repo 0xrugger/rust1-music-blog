@@ -2,6 +2,7 @@
 //id: u32,
 //thread: Option<thread::JoinHandle<()>>,
 //}
+use askama::Template;
 use std::io;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -123,6 +124,9 @@ enum HttpError {
 
     #[error("Internal server error: {0}")]
     InternalServerError(String),
+
+    #[error("Template rendering error: {0}")]
+    TemplateError(String),
 }
 impl HttpError {
     pub fn status_code(&self) -> u16 {
@@ -134,9 +138,26 @@ impl HttpError {
             HttpError::EmptyRequest => 400,
             HttpError::InvalidRequestLine => 400,
             HttpError::InternalServerError(_) => 500,
+            HttpError::TemplateError(_) => 500,
         }
     }
 }
+
+#[derive(Template)]
+#[template(path = "home.html")]
+struct HomeTemplate {
+    posts_count: usize,
+}
+#[derive(Template)]
+#[template(path = "404.html")]
+struct NotFoundTemplate;
+#[derive(Template)]
+#[template(path = "upload_success.html")]
+struct UploadSuccess;
+#[derive(Template)]
+#[template(path = "upload.html")]
+struct UploadTemplate;
+
 struct Post {
     id: u32,
     text: String,
@@ -205,78 +226,36 @@ fn send_binary_response(
 }
 
 fn home_page_handler(req: &HttpRequest, state: &AppState) -> Result<Response, HttpError> {
-    let posts_count = state.posts.len();
-    let html = format!(
-        r##"<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <title>0xrugger</title>
-    <script src="/static/main.js"></script>
-</head>
-<body>
-    <h1>X RUGGER MUSIC</h1>
-    <p>I'm just doin a little trap :33</p>
-    <button onclick="showUploadForm()">Upload</button>
-<div id="uploadForm" style="display:none;">
-  <textarea id="postText" name="text"
-  placeholder="type your text here" rows="5" cols="50" maxlength="1000" oninput="updateCounter()"></textarea>
-  <div id="counter">0/1000</div>
-  <input type="file" id="fileInput" multiple>
-  <button onclick="uploadFile()">Publish</button>
-</div>
- <div id="feed" class="posts-container">
-    <h2>Recent Posts</h2>
-    <p>Total posts: {}</p>
-  </div>
-</body>
-</html>"##,
-        posts_count
-    );
+    let template = HomeTemplate {
+        posts_count: state.posts.len(),
+    };
+    let html = template
+        .render()
+        .map_err(|e| HttpError::InternalServerError(format!("Template error: {}", e)))?;
     Ok(Response::html(200, html))
 }
 
 fn upload_page_handler(req: &HttpRequest) -> Result<Response, HttpError> {
-    let html = r#"<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <title>Loading...</title>
-</head>
-<body>
-    <h1>Upload</h1>
-    <p>soon</p>
-    <a href="/">to the main page</a>
-</body>
-</html>"#;
+    let template = UploadTemplate;
+    let html = template
+        .render()
+        .map_err(|e| HttpError::TemplateError(e.to_string()))?;
     Ok(Response::html(200, html.to_string()))
 }
 
 fn upload_post_handler(req: &HttpRequest, state: &mut AppState) -> Result<Response, HttpError> {
-    let html = r#"<!DOCTYPE html>
-    <html>
-    <body>
-        <h1>Uploaded successfully</h1>
-        <a href="/">to the main page</a>
-    </body>
-    </html>"#;
-
+    let template = UploadSuccess;
+    let html = template
+        .render()
+        .map_err(|e| HttpError::InternalServerError(format!("Template error: {}", e)))?;
     Ok(Response::html(200, html.to_string()))
 }
 
 fn not_found_handler(req: &HttpRequest) -> Result<Response, HttpError> {
-    let html = r#"<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <title>not found</title>
-</head>
-<body>
-    <h1>404 - page not found</h1>
-    <p>this path is not exist</p>
-    <a href="/">to the main page</a>
-</body>
-</html>"#;
+    let template = NotFoundTemplate;
+    let html = template
+        .render()
+        .map_err(|e| HttpError::InternalServerError(format!("Template error: {}", e)))?;
     Ok(Response::not_found_with_html(html.to_string()))
 }
 
