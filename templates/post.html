@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}{{ post.title }}{% endblock %}
+
+{% block content %}
+    <article class="post">
+        <h1>{{ post.title }}</h1>
+        
+        {% if !post.description.is_empty() %}
+        <div class="description">
+            <p>{{ post.description }}</p>
+        </div>
+        {% endif %}
+        
+        <div class="post-content">
+            {{ post.text }}
+        </div>
+        
+        <div class="post-meta">
+            <p>Slug: {{ post.slug }}</p>
+        </div>
+    </article>
+{% endblock %}

@@ -71,7 +71,7 @@ impl HttpRequest {
         })
     }
     pub fn parse_urlencoded(body: &[u8]) -> Result<HashMap<String, String>, HttpError> {
-        let body_str = std::str::from_utf8(body)?;
+        let body_str = std::str::from_utf8(body)?.replace('+', " ");
         let mut map = HashMap::new();
         for pair in body_str.split('&') {
             if let Some((key, value)) = pair.split_once('=') {
@@ -81,6 +81,29 @@ impl HttpRequest {
             }
         }
         Ok(map)
+    }
+    pub fn slugify(text: &str) -> String {
+        let lower = text.to_lowercase();
+        let words: Vec<&str> = lower.split_whitespace().take(3).collect();
+        let with_dashes = words.join("-");
+        let filtered: String = with_dashes
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+            .collect();
+        let mut result = filtered;
+        while result.contains("--") {
+            result = result.replace("--", "-");
+        }
+        result = result.trim_matches('-').to_string();
+        if result.is_empty() {
+            return "post".to_string();
+        }
+        if result.len() > 50 {
+            result.truncate(50);
+
+            result = result.trim_end_matches('-').to_string();
+        }
+        result
     }
     pub fn validate_slug(slug: &str) -> Result<(), HttpError> {
         if slug.is_empty() {
@@ -104,6 +127,15 @@ impl HttpRequest {
                 ));
             };
         }
+        Ok(())
+    }
+    pub fn validate_title(title: &str) -> Result<(), HttpError> {
+        if title.is_empty() {
+            return Err(HttpError::ValidationError("Title is empty".to_string()));
+        };
+        if title.len() > 100 {
+            return Err(HttpError::ValidationError("Title too long".to_string()));
+        };
         Ok(())
     }
 }
@@ -192,10 +224,16 @@ struct NotFoundTemplate;
 #[derive(Template)]
 #[template(path = "upload_success.html")]
 struct UploadSuccess;
-
+#[derive(Template)]
+#[template(path = "post.html")]
+struct PostTemplate<'a> {
+    post: &'a Post,
+}
 struct Post {
     slug: String,
     text: String,
+    title: String,
+    description: String,
 }
 struct FileData {
     filename: String,
@@ -204,6 +242,12 @@ struct FileData {
 }
 struct AppState {
     posts: Vec<Post>,
+}
+
+impl AppState {
+    pub fn find_post_by_slug(&self, slug: &str) -> Option<&Post> {
+        self.posts.iter().find(|post| post.slug == slug)
+    }
 }
 
 fn main() -> std::io::Result<()> {
@@ -271,17 +315,23 @@ fn home_page_handler(req: &HttpRequest, state: &AppState) -> Result<Response, Ht
 fn upload_post_handler(req: &HttpRequest, state: &mut AppState) -> Result<Response, HttpError> {
     let form_data = HttpRequest::parse_urlencoded(&req.body)
         .map_err(|e| HttpError::BadRequest("URL Encoding error".to_string()))?;
-    let slug = form_data
-        .get("slug")
-        .ok_or(HttpError::BadRequest("Slug undecoded".to_string()))?;
     let text = form_data
         .get("text")
         .ok_or(HttpError::BadRequest("Text undecoded".to_string()))?
         .clone();
-    HttpRequest::validate_slug(slug)?;
+    let title = form_data
+        .get("title")
+        .ok_or(HttpError::BadRequest("Title undecoded".to_string()))?
+        .clone();
+    HttpRequest::validate_title(&title)?;
+    let description = form_data.get("description").cloned().unwrap_or_default();
+    let slug = HttpRequest::slugify(&title);
+    HttpRequest::validate_slug(&slug)?;
     let post = Post {
-        slug: slug.clone(),
+        slug: slug,
         text: text,
+        title: title,
+        description: description,
     };
     state.posts.push(post);
 
@@ -290,6 +340,28 @@ fn upload_post_handler(req: &HttpRequest, state: &mut AppState) -> Result<Respon
         .render()
         .map_err(|e| HttpError::InternalServerError(format!("Template error: {}", e)))?;
     Ok(Response::html(200, html.to_string()))
+}
+
+fn post_page_handler(slug: &str, state: &AppState) -> Result<Response, HttpError> {
+    let post = state.find_post_by_slug(slug);
+    if post.is_none() {
+        let dummy_request = HttpRequest {
+            method: "GET".to_string(),
+            path: format!("/post/{}", slug),
+            headers: Vec::new(),
+            body: Vec::new(),
+        };
+        return not_found_handler(&dummy_request);
+    }
+
+    let template = PostTemplate {
+        post: post.unwrap(),
+    };
+    let html = template
+        .render()
+        .map_err(|e| HttpError::InternalServerError(format!("Template error: {}", e)))?;
+
+    Ok(Response::html(200, html))
 }
 
 fn not_found_handler(req: &HttpRequest) -> Result<Response, HttpError> {
@@ -377,6 +449,15 @@ fn handle_connection(mut stream: TcpStream, state: Rc<Mutex<AppState>>) -> Resul
             upload_post_handler(&request, &mut state_guard)
         }
         ("GET", path) if path.starts_with("/static/") => static_handler(&request),
+        ("GET", path) if path.starts_with("/post/") => {
+            let state_guard = state
+                .lock()
+                .map_err(|e| HttpError::InternalServerError(format!("Mutex poison: {}", e)))?;
+            match path.strip_prefix("/post/") {
+                Some(slug) if !slug.is_empty() => post_page_handler(slug, &state_guard),
+                _ => not_found_handler(&request),
+            }
+        }
         _ => not_found_handler(&request),
     };
 
