@@ -1,8 +1,6 @@
-//struct Worker {
-//id: u32,
-//thread: Option<thread::JoinHandle<()>>,
-//}
 use askama::Template;
+use percent_encoding::percent_decode_str;
+use std::collections::HashMap;
 use std::io;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -72,6 +70,42 @@ impl HttpRequest {
             body,
         })
     }
+    pub fn parse_urlencoded(body: &[u8]) -> Result<HashMap<String, String>, HttpError> {
+        let body_str = std::str::from_utf8(body)?;
+        let mut map = HashMap::new();
+        for pair in body_str.split('&') {
+            if let Some((key, value)) = pair.split_once('=') {
+                let decoded_key = percent_decode_str(key).decode_utf8_lossy();
+                let decoded_value = percent_decode_str(value).decode_utf8_lossy();
+                map.insert(decoded_key.to_string(), decoded_value.to_string());
+            }
+        }
+        Ok(map)
+    }
+    pub fn validate_slug(slug: &str) -> Result<(), HttpError> {
+        if slug.is_empty() {
+            return Err(HttpError::ValidationError("Slug empty".to_string()));
+        };
+        if slug.len() < 3 || slug.len() > 50 {
+            return Err(HttpError::ValidationError("Slug lenght error".to_string()));
+        };
+        if slug.starts_with('-') || slug.ends_with('-') {
+            return Err(HttpError::ValidationError(
+                "Slug start/end contains '-'".to_string(),
+            ));
+        };
+        if slug.contains("--") {
+            return Err(HttpError::ValidationError("Slug contains '--'".to_string()));
+        };
+        for ch in slug.chars() {
+            if !(ch.is_ascii_alphanumeric() || ch == '-') {
+                return Err(HttpError::ValidationError(
+                    "Slug grammar is not correct".to_string(),
+                ));
+            };
+        }
+        Ok(())
+    }
 }
 struct Response {
     status: u16,
@@ -127,6 +161,9 @@ enum HttpError {
 
     #[error("Template rendering error: {0}")]
     TemplateError(String),
+
+    #[error("Slug validation error: {0}")]
+    ValidationError(String),
 }
 impl HttpError {
     pub fn status_code(&self) -> u16 {
@@ -139,14 +176,15 @@ impl HttpError {
             HttpError::InvalidRequestLine => 400,
             HttpError::InternalServerError(_) => 500,
             HttpError::TemplateError(_) => 500,
+            HttpError::ValidationError(_) => 400,
         }
     }
 }
 
 #[derive(Template)]
 #[template(path = "home.html")]
-struct HomeTemplate {
-    posts_count: usize,
+struct HomeTemplate<'a> {
+    posts: &'a Vec<Post>,
 }
 #[derive(Template)]
 #[template(path = "404.html")]
@@ -154,14 +192,10 @@ struct NotFoundTemplate;
 #[derive(Template)]
 #[template(path = "upload_success.html")]
 struct UploadSuccess;
-#[derive(Template)]
-#[template(path = "upload.html")]
-struct UploadTemplate;
 
 struct Post {
-    id: u32,
+    slug: String,
     text: String,
-    files: Vec<FileData>,
 }
 struct FileData {
     filename: String,
@@ -227,23 +261,30 @@ fn send_binary_response(
 
 fn home_page_handler(req: &HttpRequest, state: &AppState) -> Result<Response, HttpError> {
     let template = HomeTemplate {
-        posts_count: state.posts.len(),
+        posts: &state.posts,
     };
     let html = template
         .render()
         .map_err(|e| HttpError::InternalServerError(format!("Template error: {}", e)))?;
     Ok(Response::html(200, html))
 }
-
-fn upload_page_handler(req: &HttpRequest) -> Result<Response, HttpError> {
-    let template = UploadTemplate;
-    let html = template
-        .render()
-        .map_err(|e| HttpError::TemplateError(e.to_string()))?;
-    Ok(Response::html(200, html.to_string()))
-}
-
 fn upload_post_handler(req: &HttpRequest, state: &mut AppState) -> Result<Response, HttpError> {
+    let form_data = HttpRequest::parse_urlencoded(&req.body)
+        .map_err(|e| HttpError::BadRequest("URL Encoding error".to_string()))?;
+    let slug = form_data
+        .get("slug")
+        .ok_or(HttpError::BadRequest("Slug undecoded".to_string()))?;
+    let text = form_data
+        .get("text")
+        .ok_or(HttpError::BadRequest("Text undecoded".to_string()))?
+        .clone();
+    HttpRequest::validate_slug(slug)?;
+    let post = Post {
+        slug: slug.clone(),
+        text: text,
+    };
+    state.posts.push(post);
+
     let template = UploadSuccess;
     let html = template
         .render()
@@ -329,8 +370,7 @@ fn handle_connection(mut stream: TcpStream, state: Rc<Mutex<AppState>>) -> Resul
                 .map_err(|e| HttpError::InternalServerError(format!("Mutex poison: {}", e)))?;
             home_page_handler(&request, &state_guard)
         }
-        ("GET", "/upload") => upload_page_handler(&request),
-        ("POST", "/upload") => {
+        ("POST", "/") => {
             let mut state_guard = state
                 .lock()
                 .map_err(|e| HttpError::InternalServerError(format!("Mutex poison: {}", e)))?;

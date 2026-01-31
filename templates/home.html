@@ -9,20 +9,37 @@
 {% block content %}
     <h1>X RUGGER MUSIC</h1>
     <p>I'm just doin a little trap :33</p>
-    <button onclick="showUploadForm()">Upload</button>
     
-    <div id="uploadForm" style="display:none;">
-        <textarea id="postText" name="text"
-            placeholder="type your text here" 
-            rows="5" cols="50" maxlength="1000" 
-            oninput="updateCounter()"></textarea>
-        <div id="counter">0/1000</div>
-        <input type="file" id="fileInput" multiple>
-        <button onclick="uploadFile()">Publish</button>
+    <div id="uploadForm">
+        <form method="POST" action="/" enctype="application/x-www-form-urlencoded">
+            <input 
+                type="text" 
+                name="slug" 
+                placeholder="my-cool-post" 
+                required
+                style="display: block; margin-bottom: 10px; padding: 5px; width: 300px;">
+            
+            <textarea 
+                name="text"
+                placeholder="type your text here" 
+                rows="5" cols="50" 
+                maxlength="1000"
+                required
+                style="display: block; margin-bottom: 10px; padding: 5px;"></textarea>
+            
+            <button type="submit">Publish</button>
+        </form>
     </div>
     
     <div id="feed" class="posts-container">
         <h2>Recent Posts</h2>
-        <p>Total posts: {{ posts_count }}</p>
+        <p>Total posts: {{ posts.len() }}</p>
+        
+        {% for post in posts %}
+            <div class="post">
+                <h3>{{ post.slug }}</h3>
+                <p>{{ post.text }}</p>
+            </div>
+        {% endfor %}
     </div>
 {% endblock %}
