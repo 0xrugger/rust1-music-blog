@@ -1,0 +1,226 @@
+* { /* сброс вложенных стилей */
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+} 
+:root { /* глобал переменные */
+    --main-bg: #2c2a2a83;
+    --glass-bg: #2c2a2a83;
+    --accent-color: #ffffff83;
+    --headtext-color: #18a86eb2;
+    --subname-color: #ffffff83;
+    --maintext-color: #ffffff83;
+    --secondarytext-color: #18a86eb2;
+    --mutedtext-color: #ffffff83;
+    --border-color: #00ff8c32;
+    --font-heading: 'Bruno Ace SC', monospace;
+    --font-main: 'Michroma', monospace;
+}
+body { /* глобал настройки */
+    background-image: url('/static/images/wallpaper_.jpg');
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: cover;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    margin: 0;
+    padding: 20px;
+    font-family: var(--font-main);
+    color: var(--maintext-color);
+}
+#websiteContainer {
+    width: 60%;
+    max-width: 1000px;
+    min-width: 320px;
+    margin: 20px auto;
+    background-color: rgba(28, 28, 29, 0.75);
+    border-radius: 40px;
+    box-shadow: 
+        0 10px 30px rgba(0, 0, 0, 1.9),
+        inset 0 0 60px rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(5px);
+    overflow: hidden;
+}
+#mainHeader {
+    background: linear-gradient(to bottom, 
+        rgba(71, 71, 71, 0.9), 
+        rgba(19, 19, 19, 0.9));
+    border-bottom: 2px solid var(--border-color);
+    padding: 15px 50px;   
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-radius: 20px 20px 0 0;
+    backdrop-filter: blur(10px);
+}
+.site-branding {
+    display: flex;
+    align-items: center;
+    gap: 15px; 
+}
+.site-name {
+    font-family: 'Bruno Ace SC', monospace;
+    color: var(--headtext-color);
+    font-size: 40px;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 1.5);
+    margin: 0;
+}
+.site-subname {
+    color: var(--subname-color);
+    font-size: 9px;
+    margin: 5px 0 0 0;
+}
+#navAndContentContainer {
+    display: flex;
+    min-height: 300px;
+    gap: 0;
+}
+#navigationMenu {
+    flex: 0 0 100px;
+    border-right: 2px solid var(--border-color);;
+    padding: 5px;
+    box-shadow: 5px 0 10px rgba(0, 0, 0, 0.2) inset;
+}
+#mainContent {
+    flex: 1;
+    padding: 25px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    overflow-y: auto;
+}
+.nav-bar {
+    font-family: 'Bruno Ace SC', monospace;
+    color: var(--headtext-color);
+    font-size: 12px;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 1.5);
+    margin: 0;
+    font-weight: bold;
+    text-transform: uppercase;
+    padding: 3px 0;
+    margin-bottom: 10px;
+}
+.nav-link--current {
+    display: block;
+    padding: 2px 10px;
+    text-decoration: none;
+    color: var(--mutedtext-color);
+    font-size: 10px;
+    background: linear-gradient(
+        135deg,
+        rgba(24, 168, 110, 0.15),
+        rgba(24, 168, 110, 0.05)
+    );
+    border-left: 3px solid var(--headtext-color);
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+}
+.nav-link--current:hover {
+    transform: translateY(-2px); 
+    box-shadow: 
+        0 5px 15px rgba(60, 218, 86, 0.4), 
+        inset 0 1px 0 rgba(255, 255, 255, 0.2); 
+}
+.nav-link--current:active {
+    transform: translateY(0); 
+    box-shadow: 
+        inset 0 2px 4px rgba(0, 0, 0, 0.3), 
+        0 1px 2px rgba(0, 0, 0, 0.1); 
+}
+.styled-containers {
+    background: rgba(27, 27, 27, 0.36);
+    border-radius: 15px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 
+    0 5px 15px rgba(0,0,0,0.3);
+}
+
+.glass-borders {
+    border-radius: 10px;
+    padding: 10px;
+    margin: 15px 0;
+}
+.glass-borders:hover {
+    border-color: rgba(60, 218, 86, 0.5); 
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2); 
+}
+.form-input, .form-textarea {
+    width: 100%;
+    background: rgba(27, 27, 27, 0.556);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--mutedtext-color);
+    padding: 5px;
+    font-size: 14px;
+    font-family: inherit;
+}
+.aero-button {
+    background: var(--headtext-color);
+    border: 1px solid #000; 
+    border-radius: 5px; 
+    color: white; 
+    padding: 10px 15px; 
+    font-size: 10px;
+    cursor: pointer; 
+    position: relative; 
+    overflow: hidden; 
+    transition: all 0.3s ease; 
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5); 
+    align-self: flex-start; 
+    text-transform: uppercase; 
+    letter-spacing: 1px; 
+    font-weight: bold; 
+    font-family: inherit;
+}
+.aero-button:hover {
+    transform: translateY(-2px); 
+    box-shadow: 
+        0 5px 15px rgba(60, 218, 86, 0.4), 
+        inset 0 1px 0 rgba(255, 255, 255, 0.2); 
+}
+.aero-button:active {
+    transform: translateY(0); 
+    box-shadow: 
+        inset 0 2px 4px rgba(0, 0, 0, 0.3), 
+        0 1px 2px rgba(0, 0, 0, 0.1); 
+}
+.posts-container {
+    margin-top: 30px;
+}
+.post-item {
+    background: rgba(27, 27, 27, 0.36);
+    border-left: 4px solid var(--primary-color);
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+    border: 1px solid var(--border-color);
+}
+.section-subtitle {
+    font-size: 15px;  
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+}
+.stats-counter {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-bottom: 20px;
+    font-style: italic; 
+}
+.main-footer {
+    background: linear-gradient(to top, 
+        rgba(19, 19, 19, 0.5))
+        rgba(71, 71, 71, 0.5);
+    border-top: 2px solid var(--border-color);
+    text-align: center;
+    font-size: 10px;
+    padding: 10px;
+    margin-top: auto;
+}
+.main-footer p {
+  color: solid var(--mutedtext-color);
+}
+.second-footer {
+  font-size: 8px;
+}

@@ -7,31 +7,42 @@
 {% endblock %}
 
 {% block content %}
-    <h1>X RUGGER MUSIC</h1>
-    <p>I'm just doin a little trap :33</p>
-    
-    <div id="uploadForm">
+<div class="styled-containers">
+    <h2>Create new post</h2>
+    <div id="uploadForm" class="glass-borders">
         <form method="POST" action="/" enctype="application/x-www-form-urlencoded">
-            <input type="text" name="title" placeholder="Title required" required>
-            <textarea name="description" placeholder="Description (no need)" rows="2"></textarea>
+            <div class="form-group">
+            <input type="text" name="title" placeholder="Title required" required 
+            class="form-input text-input">
+            </div>
+
+            <div class="form-group">
+            <textarea name="description" placeholder="Description (no need)" rows="2"
+            class="form-textarea desc-textarea"></textarea>
+            </div>
+
+            <div class="form-group">
             <textarea 
                 name="text"
+                id="postInput"
                 placeholder="type your text here" 
                 rows="5" cols="50" 
                 maxlength="1000"
                 required
-                style="display: block; margin-bottom: 10px; padding: 5px;"></textarea>
-            
-            <button type="submit">Publish</button>
+                class="form-textarea main-textarea"></textarea>
+                <div class="char-counter" id="counter">0/1000</div>
+            </div>
+            <button type="submit" class="aero-button">Publish</button>
+        </div>
         </form>
     </div>
     
     <div id="feed" class="posts-container">
-        <h2>Recent Posts</h2>
-        <p>Total posts: {{ posts.len() }}</p>
+        <h2 class="section-subtitle">Recent Posts</h2>
+        <p class="stats-counter">Total posts: {{ posts.len() }}</p>
         
         {% for post in posts %}
-            <div class="post">
+            <div class="post-item glass-borders">
                 <h3><a href="/post/{{ post.slug }}">{{ post.title }}</a></h3>
                 {% if !post.description.is_empty() %}
      <p class="description">{{ post.description }}</p>
