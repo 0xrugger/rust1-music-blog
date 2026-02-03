@@ -8,19 +8,13 @@
 
 {% block content %}
 <div class="styled-containers">
-    <h2>Create new post</h2>
+    <h2 class="create-text">Create new post</h2>
     <div id="uploadForm" class="glass-borders">
         <form method="POST" action="/" enctype="application/x-www-form-urlencoded">
             <div class="form-group">
             <input type="text" name="title" placeholder="Title required" required 
             class="form-input text-input">
             </div>
-
-            <div class="form-group">
-            <textarea name="description" placeholder="Description (no need)" rows="2"
-            class="form-textarea desc-textarea"></textarea>
-            </div>
-
             <div class="form-group">
             <textarea 
                 name="text"
@@ -33,22 +27,30 @@
                 <div class="char-counter" id="counter">0/1000</div>
             </div>
             <button type="submit" class="aero-button">Publish</button>
-        </div>
         </form>
     </div>
     
-    <div id="feed" class="posts-container">
-        <h2 class="section-subtitle">Recent Posts</h2>
-        <p class="stats-counter">Total posts: {{ posts.len() }}</p>
-        
-        {% for post in posts %}
-            <div class="post-item glass-borders">
-                <h3><a href="/post/{{ post.slug }}">{{ post.title }}</a></h3>
-                {% if !post.description.is_empty() %}
-     <p class="description">{{ post.description }}</p>
-                   {% endif %}
-                <p>{{ post.text }}</p>
-            </div>
-        {% endfor %}
+    {% if show_upload_success %}
+    <div id="uploadSuccessModal" class="modal" style="display: flex;">
+        <div class="modal-content">
+            <h3>Success!</h3>
+            <p>Your post has been created successfully.</p>
+            <button onclick="closeModalAndCleanUrl()" class="modal-close-btn">OK</button>
+        </div>
     </div>
+
+<script>
+function closeModalAndCleanUrl() {
+    document.getElementById('uploadSuccessModal').style.display = 'none';
+    if (window.history.replaceState) {
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, newUrl);
+    }
+}
+</script>
+{% endif %}
+    <div id="feed" class="posts-container">
+        <p class="stats-counter">Total posts: {{ posts_count }}</p>
+    </div>
+</div>
 {% endblock %}

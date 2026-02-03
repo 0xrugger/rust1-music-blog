@@ -15,6 +15,7 @@ struct HttpRequest {
     path: String,
     headers: Vec<(String, String)>,
     body: Vec<u8>,
+    query_params: HashMap<String, String>,
 }
 
 impl HttpRequest {
@@ -38,10 +39,17 @@ impl HttpRequest {
             .next()
             .ok_or(HttpError::InvalidRequestLine)?
             .to_string();
-        let path = parts
+        let path_with_query = parts
             .next()
             .ok_or(HttpError::InvalidRequestLine)?
             .to_string();
+        let (path, query) = if let Some(pos) = path_with_query.find('?') {
+            let (p, q) = path_with_query.split_at(pos);
+            (p.to_string(), q[1..].to_string())
+        } else {
+            (path_with_query, String::new())
+        };
+        let query_params = Self::parse_query_string(&query);
         let mut content_length = 0;
         let mut headers = Vec::new();
 
@@ -68,7 +76,34 @@ impl HttpRequest {
             path,
             headers,
             body,
+            query_params,
         })
+    }
+    pub fn get_query_param(&self, param: &str) -> Option<&str> {
+        self.query_params.get(param).map(|s| s.as_str())
+    }
+    fn parse_query_string(query: &str) -> HashMap<String, String> {
+        let mut result = HashMap::new();
+        if query.is_empty() {
+            return result;
+        }
+        for part in query.split('&') {
+            if part.is_empty() {
+                continue;
+            }
+            let (key_raw, value_raw) = match part.find('=') {
+                Some(pos) => {
+                    let (k, v) = part.split_at(pos);
+                    (k, &v[1..])
+                }
+                None => (part, ""),
+            };
+            let decoded_key = percent_decode_str(key_raw).decode_utf8_lossy();
+            let decoded_value = percent_decode_str(value_raw).decode_utf8_lossy();
+            result.insert(decoded_key.to_string(), decoded_value.to_string());
+        }
+
+        result
     }
     pub fn parse_urlencoded(body: &[u8]) -> Result<HashMap<String, String>, HttpError> {
         let body_str = std::str::from_utf8(body)?.replace('+', " ");
@@ -166,6 +201,22 @@ impl Response {
             body: ResponseBody::Binary(data, content_type),
         }
     }
+
+    fn redirect(location: &str) -> Self {
+        let html = format!(
+            "<html><head>\
+             <meta http-equiv=\"refresh\" content=\"0; url={}\">\
+             </head><body>\
+             Redirecting to <a href=\"{}\">{}</a>\
+             </body></html>",
+            location, location, location
+        );
+
+        Response {
+            status: 303,
+            body: ResponseBody::Html(html),
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -191,8 +242,8 @@ enum HttpError {
     #[error("Internal server error: {0}")]
     InternalServerError(String),
 
-    #[error("Template rendering error: {0}")]
-    TemplateError(String),
+    #[error("Template error: {0}")]
+    Template(#[from] askama::Error),
 
     #[error("Slug validation error: {0}")]
     ValidationError(String),
@@ -207,7 +258,7 @@ impl HttpError {
             HttpError::EmptyRequest => 400,
             HttpError::InvalidRequestLine => 400,
             HttpError::InternalServerError(_) => 500,
-            HttpError::TemplateError(_) => 500,
+            HttpError::Template(_) => 500,
             HttpError::ValidationError(_) => 400,
         }
     }
@@ -215,30 +266,40 @@ impl HttpError {
 
 #[derive(Template)]
 #[template(path = "home.html")]
-struct HomeTemplate<'a> {
-    posts: &'a Vec<Post>,
+struct HomeTemplate {
+    posts_count: usize,
+    nav_items: Vec<NavItem>,
+    current_page: String,
+    show_upload_success: bool,
 }
 #[derive(Template)]
 #[template(path = "404.html")]
-struct NotFoundTemplate;
-#[derive(Template)]
-#[template(path = "upload_success.html")]
-struct UploadSuccess;
+struct NotFoundTemplate {
+    nav_items: Vec<NavItem>,
+    current_page: String,
+}
 #[derive(Template)]
 #[template(path = "post.html")]
 struct PostTemplate<'a> {
     post: &'a Post,
+    nav_items: Vec<NavItem>,
+    current_page: String,
 }
 struct Post {
+    id: u32,
     slug: String,
     text: String,
     title: String,
-    description: String,
 }
 struct FileData {
     filename: String,
     content_type: String,
     data: Vec<u8>,
+}
+struct NavItem {
+    title: String,
+    url: String,
+    is_current: bool,
 }
 struct AppState {
     posts: Vec<Post>,
@@ -247,6 +308,20 @@ struct AppState {
 impl AppState {
     pub fn find_post_by_slug(&self, slug: &str) -> Option<&Post> {
         self.posts.iter().find(|post| post.slug == slug)
+    }
+    pub fn generate_navigation(&self, current_slug: Option<&str>) -> Vec<NavItem> {
+        let mut result = Vec::new();
+        for (index, post) in self.posts.iter().enumerate() {
+            let title = format!("POST {}", index + 1);
+            let url = format!("/post/{}", post.slug);
+            let is_current = current_slug == Some(&post.slug);
+            result.push(NavItem {
+                title,
+                url,
+                is_current,
+            });
+        }
+        result
     }
 }
 
@@ -304,12 +379,15 @@ fn send_binary_response(
 }
 
 fn home_page_handler(req: &HttpRequest, state: &AppState) -> Result<Response, HttpError> {
+    let show_upload_success = req.get_query_param("upload_success") == Some("true");
+    let nav_items = state.generate_navigation(None);
     let template = HomeTemplate {
-        posts: &state.posts,
+        posts_count: state.posts.len(),
+        nav_items,
+        current_page: "/".to_string(),
+        show_upload_success,
     };
-    let html = template
-        .render()
-        .map_err(|e| HttpError::InternalServerError(format!("Template error: {}", e)))?;
+    let html = template.render()?;
     Ok(Response::html(200, html))
 }
 fn upload_post_handler(req: &HttpRequest, state: &mut AppState) -> Result<Response, HttpError> {
@@ -324,51 +402,46 @@ fn upload_post_handler(req: &HttpRequest, state: &mut AppState) -> Result<Respon
         .ok_or(HttpError::BadRequest("Title undecoded".to_string()))?
         .clone();
     HttpRequest::validate_title(&title)?;
-    let description = form_data.get("description").cloned().unwrap_or_default();
     let slug = HttpRequest::slugify(&title);
     HttpRequest::validate_slug(&slug)?;
+    let id = state.posts.len() as u32 + 1;
     let post = Post {
+        id: id,
         slug: slug,
         text: text,
         title: title,
-        description: description,
     };
     state.posts.push(post);
-
-    let template = UploadSuccess;
-    let html = template
-        .render()
-        .map_err(|e| HttpError::InternalServerError(format!("Template error: {}", e)))?;
-    Ok(Response::html(200, html.to_string()))
+    Ok(Response::redirect("/?upload_success=true"))
 }
 
-fn post_page_handler(slug: &str, state: &AppState) -> Result<Response, HttpError> {
+fn post_page_handler(
+    request: &HttpRequest,
+    slug: &str,
+    state: &AppState,
+) -> Result<Response, HttpError> {
     let post = state.find_post_by_slug(slug);
     if post.is_none() {
-        let dummy_request = HttpRequest {
-            method: "GET".to_string(),
-            path: format!("/post/{}", slug),
-            headers: Vec::new(),
-            body: Vec::new(),
-        };
-        return not_found_handler(&dummy_request);
+        return not_found_handler(request);
     }
-
+    let nav_items = state.generate_navigation(Some(slug));
     let template = PostTemplate {
         post: post.unwrap(),
+        nav_items,
+        current_page: format!("/post/{}", slug),
     };
-    let html = template
-        .render()
-        .map_err(|e| HttpError::InternalServerError(format!("Template error: {}", e)))?;
+    let html = template.render()?;
 
     Ok(Response::html(200, html))
 }
 
 fn not_found_handler(req: &HttpRequest) -> Result<Response, HttpError> {
-    let template = NotFoundTemplate;
-    let html = template
-        .render()
-        .map_err(|e| HttpError::InternalServerError(format!("Template error: {}", e)))?;
+    let nav_items = Vec::new();
+    let template = NotFoundTemplate {
+        nav_items,
+        current_page: req.path.clone(),
+    };
+    let html = template.render()?;
     Ok(Response::not_found_with_html(html.to_string()))
 }
 
@@ -454,7 +527,7 @@ fn handle_connection(mut stream: TcpStream, state: Rc<Mutex<AppState>>) -> Resul
                 .lock()
                 .map_err(|e| HttpError::InternalServerError(format!("Mutex poison: {}", e)))?;
             match path.strip_prefix("/post/") {
-                Some(slug) if !slug.is_empty() => post_page_handler(slug, &state_guard),
+                Some(slug) if !slug.is_empty() => post_page_handler(&request, slug, &state_guard),
                 _ => not_found_handler(&request),
             }
         }

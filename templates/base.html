@@ -25,7 +25,15 @@
              <nav id="navigationMenu">
                 <div class="nav-column">
                     <h3 class="nav-bar">NAVIGATION</h3>
-                    <a href="/" class="nav-link--current">Home</a>
+                    <a href="/" class="{% if current_page == "/" %}nav-link--current
+                    {% else %}nav-link{% endif %}">HOME</a>
+
+                    {% for nav_item in nav_items %}
+                    <a href="{{ nav_item.url }}"
+                    class="{% if nav_item.is_current %}nav-link--current{% else %}nav-link{% endif %}">
+                    {{ nav_item.title }}
+                    </a>
+                  {% endfor %}
                 </div>
             </nav>
             
