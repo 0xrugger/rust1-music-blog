@@ -2,8 +2,14 @@
 
 {% block title %}404 - Page Not Found{% endblock %}
 
+{% block navigation %}{% endblock %}
+
 {% block content %}
-    <h1>404 - page not found</h1>
-    <p>this path does not exist</p>
-    <a href="/">to the main page</a>
+<div class="error-container">
+    <h1 class="error-code">404 - page not found</h1>
+<p class="error-message">
+    This path does not exist.
+</p>
+<a href="/" class="error-link">Return to Home</a>
+</div>
 {% endblock %}

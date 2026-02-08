@@ -3,10 +3,11 @@
 {% block title %}{{ post.title }}{% endblock %}
 
 {% block content %}
-    <article class="post">
-        <h1>{{ post.title }}</h1>
+    <article class="post-page">
+        <header class="post-page-header">
+        <h1 class="post-page-title">{{ post.title }}</h1>
         
-        <div class="post-content">
+        <div class="post-page-body">
             {{ post.text }}
         </div>
         

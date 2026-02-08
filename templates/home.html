@@ -35,19 +35,9 @@
         <div class="modal-content">
             <h3>Success!</h3>
             <p>Your post has been created successfully.</p>
-            <button onclick="closeModalAndCleanUrl()" class="modal-close-btn">OK</button>
+            <button class="modal-close-btn">OK</button>
         </div>
     </div>
-
-<script>
-function closeModalAndCleanUrl() {
-    document.getElementById('uploadSuccessModal').style.display = 'none';
-    if (window.history.replaceState) {
-        const newUrl = window.location.pathname;
-        window.history.replaceState({}, document.title, newUrl);
-    }
-}
-</script>
 {% endif %}
     <div id="feed" class="posts-container">
         <p class="stats-counter">Total posts: {{ posts_count }}</p>

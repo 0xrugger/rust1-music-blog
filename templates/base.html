@@ -22,6 +22,7 @@
             </div>
         </header>
         <div id="navAndContentContainer">
+            {% block navigation %}
              <nav id="navigationMenu">
                 <div class="nav-column">
                     <h3 class="nav-bar">NAVIGATION</h3>
@@ -36,7 +37,7 @@
                   {% endfor %}
                 </div>
             </nav>
-            
+              {% endblock %}
             <main id="mainContent">
                 {% block content %}{% endblock %}
             </main>

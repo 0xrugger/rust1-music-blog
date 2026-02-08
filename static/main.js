@@ -55,6 +55,18 @@ function animateButton(button) {
     }, 150);
 }
 
+function closeModalAndCleanUrl() {
+    const modal = document.getElementById('uploadSuccessModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+    
+    if (window.history.replaceState) {
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, newUrl);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     const textarea = document.getElementById('postInput');
     if (textarea) {
@@ -78,6 +90,11 @@ document.addEventListener('DOMContentLoaded', function() {
             this.style.transition = 'all 0.3s ease';
         });
     });
+
+    const modalCloseBtn = document.querySelector('.modal-close-btn');
+    if (modalCloseBtn) {
+        modalCloseBtn.addEventListener('click', closeModalAndCleanUrl);
+    }
     
     const postCount = document.querySelector('#postCount')?.textContent || '0';
     updatePostCount(postCount);
