@@ -168,7 +168,7 @@ impl HttpRequest {
         if title.is_empty() {
             return Err(HttpError::ValidationError("Title is empty".to_string()));
         };
-        if title.len() > 100 {
+        if title.len() > 50 {
             return Err(HttpError::ValidationError("Title too long".to_string()));
         };
         Ok(())
@@ -309,12 +309,12 @@ impl AppState {
     pub fn find_post_by_slug(&self, slug: &str) -> Option<&Post> {
         self.posts.iter().find(|post| post.slug == slug)
     }
-    pub fn generate_navigation(&self, current_slug: Option<&str>) -> Vec<NavItem> {
+    pub fn generate_navigation(&self, current_path: &str) -> Vec<NavItem> {
         let mut result = Vec::new();
         for (index, post) in self.posts.iter().enumerate() {
             let title = format!("POST {}", index + 1);
             let url = format!("/post/{}", post.slug);
-            let is_current = current_slug == Some(&post.slug);
+            let is_current = current_path == url;
             result.push(NavItem {
                 title,
                 url,
@@ -380,7 +380,7 @@ fn send_binary_response(
 
 fn home_page_handler(req: &HttpRequest, state: &AppState) -> Result<Response, HttpError> {
     let show_upload_success = req.get_query_param("upload_success") == Some("true");
-    let nav_items = state.generate_navigation(None);
+    let nav_items = state.generate_navigation("/");
     let template = HomeTemplate {
         posts_count: state.posts.len(),
         nav_items,
@@ -422,9 +422,9 @@ fn post_page_handler(
 ) -> Result<Response, HttpError> {
     let post = state.find_post_by_slug(slug);
     if post.is_none() {
-        return not_found_handler(request);
+        return not_found_handler(request, state);
     }
-    let nav_items = state.generate_navigation(Some(slug));
+    let nav_items = state.generate_navigation(&format!("/post/{}", slug));
     let template = PostTemplate {
         post: post.unwrap(),
         nav_items,
@@ -435,8 +435,8 @@ fn post_page_handler(
     Ok(Response::html(200, html))
 }
 
-fn not_found_handler(req: &HttpRequest) -> Result<Response, HttpError> {
-    let nav_items = Vec::new();
+fn not_found_handler(req: &HttpRequest, state: &AppState) -> Result<Response, HttpError> {
+    let nav_items = state.generate_navigation(&req.path);
     let template = NotFoundTemplate {
         nav_items,
         current_page: req.path.clone(),
@@ -507,31 +507,20 @@ fn handle_connection(mut stream: TcpStream, state: Rc<Mutex<AppState>>) -> Resul
         }
     };
 
+    let mut state_guard = state
+        .lock()
+        .map_err(|e| HttpError::InternalServerError(format!("Mutex poison: {}", e)))?;
+
     let result: Result<Response, HttpError> = match (request.method.as_str(), request.path.as_str())
     {
-        ("GET", "/") => {
-            let state_guard = state
-                .lock()
-                .map_err(|e| HttpError::InternalServerError(format!("Mutex poison: {}", e)))?;
-            home_page_handler(&request, &state_guard)
-        }
-        ("POST", "/") => {
-            let mut state_guard = state
-                .lock()
-                .map_err(|e| HttpError::InternalServerError(format!("Mutex poison: {}", e)))?;
-            upload_post_handler(&request, &mut state_guard)
-        }
+        ("GET", "/") => home_page_handler(&request, &state_guard),
+        ("POST", "/") => upload_post_handler(&request, &mut state_guard),
         ("GET", path) if path.starts_with("/static/") => static_handler(&request),
-        ("GET", path) if path.starts_with("/post/") => {
-            let state_guard = state
-                .lock()
-                .map_err(|e| HttpError::InternalServerError(format!("Mutex poison: {}", e)))?;
-            match path.strip_prefix("/post/") {
-                Some(slug) if !slug.is_empty() => post_page_handler(&request, slug, &state_guard),
-                _ => not_found_handler(&request),
-            }
-        }
-        _ => not_found_handler(&request),
+        ("GET", path) if path.starts_with("/post/") => match path.strip_prefix("/post/") {
+            Some(slug) if !slug.is_empty() => post_page_handler(&request, slug, &state_guard),
+            _ => not_found_handler(&request, &state_guard),
+        },
+        _ => not_found_handler(&request, &state_guard),
     };
 
     match result {
