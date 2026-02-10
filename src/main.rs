@@ -117,63 +117,56 @@ impl HttpRequest {
         }
         Ok(map)
     }
-    pub fn slugify(text: &str) -> String {
-        let lower = text.to_lowercase();
-        let words: Vec<&str> = lower.split_whitespace().take(3).collect();
-        let with_dashes = words.join("-");
-        let filtered: String = with_dashes
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
-            .collect();
-        let mut result = filtered;
-        while result.contains("--") {
-            result = result.replace("--", "-");
-        }
-        result = result.trim_matches('-').to_string();
-        if result.is_empty() {
-            return "post".to_string();
-        }
-        if result.len() > 50 {
-            result.truncate(50);
+}
 
-            result = result.trim_end_matches('-').to_string();
-        }
-        result
+fn slugify(text: &str) -> String {
+    let lower = text.to_lowercase();
+    let words: Vec<&str> = lower.split_whitespace().take(3).collect();
+    let with_dashes = words.join("-");
+    let filtered: String = with_dashes
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    let mut result = filtered;
+    while result.contains("--") {
+        result = result.replace("--", "-");
     }
-    pub fn validate_slug(slug: &str) -> Result<(), HttpError> {
-        if slug.is_empty() {
-            return Err(HttpError::ValidationError("Slug empty".to_string()));
-        };
-        if slug.len() < 3 || slug.len() > 50 {
-            return Err(HttpError::ValidationError("Slug lenght error".to_string()));
-        };
-        if slug.starts_with('-') || slug.ends_with('-') {
+    result = result.trim_matches('-').to_string();
+    if result.is_empty() {
+        return "post".to_string();
+    }
+    if result.len() > 50 {
+        result.truncate(50);
+
+        result = result.trim_end_matches('-').to_string();
+    }
+    result
+}
+fn validate_slug(slug: &str) -> Result<(), HttpError> {
+    if slug.is_empty() {
+        return Err(HttpError::ValidationError("Slug empty".to_string()));
+    };
+    if slug.len() < 3 || slug.len() > 50 {
+        return Err(HttpError::ValidationError("Slug lenght error".to_string()));
+    };
+    if slug.starts_with('-') || slug.ends_with('-') {
+        return Err(HttpError::ValidationError(
+            "Slug start/end contains '-'".to_string(),
+        ));
+    };
+    if slug.contains("--") {
+        return Err(HttpError::ValidationError("Slug contains '--'".to_string()));
+    };
+    for ch in slug.chars() {
+        if !(ch.is_ascii_alphanumeric() || ch == '-') {
             return Err(HttpError::ValidationError(
-                "Slug start/end contains '-'".to_string(),
+                "Slug grammar is not correct".to_string(),
             ));
         };
-        if slug.contains("--") {
-            return Err(HttpError::ValidationError("Slug contains '--'".to_string()));
-        };
-        for ch in slug.chars() {
-            if !(ch.is_ascii_alphanumeric() || ch == '-') {
-                return Err(HttpError::ValidationError(
-                    "Slug grammar is not correct".to_string(),
-                ));
-            };
-        }
-        Ok(())
     }
-    pub fn validate_title(title: &str) -> Result<(), HttpError> {
-        if title.is_empty() {
-            return Err(HttpError::ValidationError("Title is empty".to_string()));
-        };
-        if title.len() > 50 {
-            return Err(HttpError::ValidationError("Title too long".to_string()));
-        };
-        Ok(())
-    }
+    Ok(())
 }
+
 struct Response {
     status: u16,
     body: ResponseBody,
@@ -401,9 +394,8 @@ fn upload_post_handler(req: &HttpRequest, state: &mut AppState) -> Result<Respon
         .get("title")
         .ok_or(HttpError::BadRequest("Title undecoded".to_string()))?
         .clone();
-    HttpRequest::validate_title(&title)?;
-    let slug = HttpRequest::slugify(&title);
-    HttpRequest::validate_slug(&slug)?;
+    let slug = slugify(&title);
+    validate_slug(&slug)?;
     let id = state.posts.len() as u32 + 1;
     let post = Post {
         id: id,
