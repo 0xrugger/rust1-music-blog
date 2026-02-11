@@ -30,7 +30,6 @@ fn main() -> std::io::Result<()> {
 }
 
 fn handle_connection(mut stream: TcpStream, state: Rc<Mutex<AppState>>) -> Result<(), HttpError> {
-    // Парсим HTTP запрос
     let request = match HttpRequest::from_tcp_stream(&mut stream) {
         Ok(req) => req,
         Err(e) => {
@@ -39,18 +38,13 @@ fn handle_connection(mut stream: TcpStream, state: Rc<Mutex<AppState>>) -> Resul
             return Ok(());
         }
     };
-
-    // Получаем доступ к состоянию приложения
     let mut state_guard = state
         .lock()
         .map_err(|e| HttpError::InternalServerError(format!("Mutex poison: {}", e)))?;
 
-    // Маршрутизируем запрос в нужный обработчик через модуль route
     let result = route::route(&request, &mut state_guard);
 
-    drop(state_guard); // Освобождаем мьютекс
-
-    // Отправляем ответ
+    drop(state_guard);
     match result {
         Ok(response) => {
             let status_line = format!("HTTP/1.1 {}", response.status);
