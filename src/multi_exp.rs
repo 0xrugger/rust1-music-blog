@@ -1,9 +1,16 @@
+use crate::http::Error as HttpError;
+use anyhow::Error as AnyhowError;
 use anyhow::{Context, Result};
 use multipart::server::Multipart;
 use std::collections::HashMap;
 use std::io::Read;
 use std::time::Instant;
-#[derive(Debug)]
+
+impl From<AnyhowError> for HttpError {
+    fn from(err: AnyhowError) -> Self {
+        HttpError::MultipartError(err.to_string())
+    }
+}
 pub enum FormField {
     Text(String),
     File {
