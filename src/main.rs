@@ -1,3 +1,4 @@
+//
 mod multi_exp;
 use askama::Template;
 use multi_exp::FormField;
@@ -25,8 +26,6 @@ impl HttpRequest {
     pub fn from_tcp_stream(stream: &mut TcpStream) -> Result<HttpRequest, HttpError> {
         let mut buffer = Vec::new();
         let mut temp_buf = [0u8; 8192];
-
-        // 1. Читаем заголовки до \r\n\r\n
         let mut headers_end_pos = 0;
         loop {
             let bytes_read = stream.read(&mut temp_buf)?;
@@ -72,8 +71,6 @@ impl HttpRequest {
         };
 
         let query_params = Self::parse_query_string(&query);
-
-        // 3. Парсим Content-Length и Content-Type
         let mut content_length: usize = 0;
         let mut headers = Vec::new();
         let mut content_type = None;
@@ -102,16 +99,14 @@ impl HttpRequest {
         while remaining > 0 {
             let bytes_read = stream.read(&mut temp_buf)?;
             if bytes_read == 0 {
-                break; // клиент закрыл соединение — отдаём что есть
+                break;
             }
             buffer.extend_from_slice(&temp_buf[..bytes_read]);
             remaining = remaining.saturating_sub(bytes_read);
         }
 
-        // 5. Вырезаем тело
         let body = buffer[headers_end_pos..].to_vec();
 
-        // 6. DEBUG для multipart
         if let Some(ct) = &content_type {
             if ct.contains("multipart") {
                 println!("=== DEBUG MULTIPART ===");
@@ -196,11 +191,9 @@ impl HttpRequest {
         let boundary = multi_exp::extract_boundary(content_type)
             .map_err(|e| HttpError::MultipartError(format!("Boundary extraction: {}", e)))?;
 
-        // ✅ ФИКС: перехватываем UnexpectedEof и превращаем в 400, не 500
         match multi_exp::parse_multipart(&self.body, &boundary) {
             Ok(fields) => Ok(fields),
             Err(e) => {
-                // Проверяем, это UnexpectedEof?
                 if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
                     if io_err.kind() == std::io::ErrorKind::UnexpectedEof {
                         return Err(HttpError::BadRequest(
@@ -209,7 +202,6 @@ impl HttpRequest {
                         ));
                     }
                 }
-                // Иначе — общая multipart ошибка
                 Err(HttpError::MultipartError(format!("Parsing: {}", e)))
             }
         }
@@ -535,8 +527,8 @@ fn upload_multipart_handler(
         slug,
         text,
         title,
-        filename,  // Option<String>
-        file_data, // Option<Vec<u8>>
+        filename,
+        file_data,
     };
 
     state.posts.push(post);
