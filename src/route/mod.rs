@@ -15,14 +15,10 @@ pub use upload::*;
 use crate::domain::AppState;
 use crate::http::{HttpError, HttpRequest, Response};
 
-pub fn route(
-    request: &HttpRequest,
-    state: &AppState,
-    state_mut: &mut AppState,
-) -> Result<Response, HttpError> {
+pub fn route(request: &HttpRequest, state: &mut AppState) -> Result<Response, HttpError> {
     match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/") => home_page_handler(request, state),
-        ("POST", "/") => upload_post_handler(request, state_mut),
+        ("POST", "/") => upload_post_handler(request, state),
         ("GET", path) if path.starts_with("/static/") => static_handler(request),
         ("GET", path) if path.starts_with("/post/") => {
             if let Some(slug) = path.strip_prefix("/post/") {
