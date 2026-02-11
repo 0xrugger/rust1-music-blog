@@ -1,4 +1,6 @@
+mod multi_exp;
 use askama::Template;
+use multi_exp::FormField;
 use percent_encoding::percent_decode_str;
 use std::collections::HashMap;
 use std::io;
@@ -16,23 +18,41 @@ struct HttpRequest {
     headers: Vec<(String, String)>,
     body: Vec<u8>,
     query_params: HashMap<String, String>,
+    content_type: Option<String>,
 }
 
 impl HttpRequest {
     pub fn from_tcp_stream(stream: &mut TcpStream) -> Result<HttpRequest, HttpError> {
-        let mut buffer = [0u8; 65536];
-        let bytes_read = stream.read(&mut buffer)?;
-        let data = &buffer[..bytes_read];
-        let headers_end = data
-            .windows(4)
-            .position(|w| w == b"\r\n\r\n")
-            .map(|pos| pos + 4)
-            .ok_or(HttpError::BadRequest(
+        let mut buffer = Vec::new();
+        let mut temp_buf = [0u8; 8192];
+
+        // 1. Читаем заголовки до \r\n\r\n
+        let mut headers_end_pos = 0;
+        loop {
+            let bytes_read = stream.read(&mut temp_buf)?;
+            if bytes_read == 0 {
+                break;
+            }
+            buffer.extend_from_slice(&temp_buf[..bytes_read]);
+
+            if let Some(pos) = buffer.windows(4).position(|w| w == b"\r\n\r\n") {
+                headers_end_pos = pos + 4;
+                break;
+            }
+        }
+
+        if headers_end_pos == 0 {
+            return Err(HttpError::BadRequest(
                 "No header delimiter found".to_string(),
-            ))?;
-        let headers_data = &data[..headers_end];
+            ));
+        }
+
+        // 2. Парсим заголовки
+        let headers_data = &buffer[..headers_end_pos];
         let headers_str = std::str::from_utf8(headers_data)?;
-        let first_line = headers_str.lines().next().ok_or(HttpError::EmptyRequest)?;
+
+        let mut lines = headers_str.lines();
+        let first_line = lines.next().ok_or(HttpError::EmptyRequest)?;
 
         let mut parts = first_line.split_whitespace();
         let method = parts
@@ -43,17 +63,22 @@ impl HttpRequest {
             .next()
             .ok_or(HttpError::InvalidRequestLine)?
             .to_string();
+
         let (path, query) = if let Some(pos) = path_with_query.find('?') {
             let (p, q) = path_with_query.split_at(pos);
             (p.to_string(), q[1..].to_string())
         } else {
             (path_with_query, String::new())
         };
-        let query_params = Self::parse_query_string(&query);
-        let mut content_length = 0;
-        let mut headers = Vec::new();
 
-        for line in headers_str.lines().skip(1) {
+        let query_params = Self::parse_query_string(&query);
+
+        // 3. Парсим Content-Length и Content-Type
+        let mut content_length: usize = 0;
+        let mut headers = Vec::new();
+        let mut content_type = None;
+
+        for line in lines {
             if line.trim().is_empty() {
                 break;
             }
@@ -65,11 +90,48 @@ impl HttpRequest {
                 if name.eq_ignore_ascii_case("content-length") {
                     content_length = value.parse().unwrap_or(0);
                 }
+                if name.eq_ignore_ascii_case("content-type") {
+                    content_type = Some(value.clone());
+                }
             }
         }
-        let body_start = headers_end;
-        let body_end = std::cmp::min(data.len(), body_start + content_length);
-        let body = data[body_start..body_end].to_vec();
+
+        let current_body_len = buffer.len().saturating_sub(headers_end_pos);
+        let mut remaining = content_length.saturating_sub(current_body_len);
+
+        while remaining > 0 {
+            let bytes_read = stream.read(&mut temp_buf)?;
+            if bytes_read == 0 {
+                break; // клиент закрыл соединение — отдаём что есть
+            }
+            buffer.extend_from_slice(&temp_buf[..bytes_read]);
+            remaining = remaining.saturating_sub(bytes_read);
+        }
+
+        // 5. Вырезаем тело
+        let body = buffer[headers_end_pos..].to_vec();
+
+        // 6. DEBUG для multipart
+        if let Some(ct) = &content_type {
+            if ct.contains("multipart") {
+                println!("=== DEBUG MULTIPART ===");
+                println!("Content-Type: {}", ct);
+                println!("Body length: {}", body.len());
+                println!(
+                    "First 200 bytes: {:?}",
+                    &body[..std::cmp::min(200, body.len())]
+                );
+                println!(
+                    "As ASCII: {:?}",
+                    String::from_utf8_lossy(&body[..std::cmp::min(200, body.len())])
+                );
+
+                match multi_exp::extract_boundary(ct) {
+                    Ok(b) => println!("Extracted boundary: '{}'", b),
+                    Err(e) => println!("Failed to extract boundary: {}", e),
+                }
+            }
+        }
 
         Ok(HttpRequest {
             method,
@@ -77,6 +139,7 @@ impl HttpRequest {
             headers,
             body,
             query_params,
+            content_type,
         })
     }
     pub fn get_query_param(&self, param: &str) -> Option<&str> {
@@ -116,6 +179,40 @@ impl HttpRequest {
             }
         }
         Ok(map)
+    }
+    pub fn parse_multipart(&self) -> Result<HashMap<String, multi_exp::FormField>, HttpError> {
+        let content_type = self
+            .content_type
+            .as_ref()
+            .ok_or_else(|| HttpError::BadRequest("No Content-Type header".to_string()))?;
+
+        if !content_type.starts_with("multipart/form-data") {
+            return Err(HttpError::BadRequest(format!(
+                "Expected multipart/form-data, got {}",
+                content_type
+            )));
+        }
+
+        let boundary = multi_exp::extract_boundary(content_type)
+            .map_err(|e| HttpError::MultipartError(format!("Boundary extraction: {}", e)))?;
+
+        // ✅ ФИКС: перехватываем UnexpectedEof и превращаем в 400, не 500
+        match multi_exp::parse_multipart(&self.body, &boundary) {
+            Ok(fields) => Ok(fields),
+            Err(e) => {
+                // Проверяем, это UnexpectedEof?
+                if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
+                    if io_err.kind() == std::io::ErrorKind::UnexpectedEof {
+                        return Err(HttpError::BadRequest(
+                            "Incomplete multipart request: client closed connection prematurely"
+                                .to_string(),
+                        ));
+                    }
+                }
+                // Иначе — общая multipart ошибка
+                Err(HttpError::MultipartError(format!("Parsing: {}", e)))
+            }
+        }
     }
 }
 
@@ -240,6 +337,9 @@ enum HttpError {
 
     #[error("Slug validation error: {0}")]
     ValidationError(String),
+
+    #[error("Multipart parsing error: {0}")]
+    MultipartError(String),
 }
 impl HttpError {
     pub fn status_code(&self) -> u16 {
@@ -253,6 +353,7 @@ impl HttpError {
             HttpError::InternalServerError(_) => 500,
             HttpError::Template(_) => 500,
             HttpError::ValidationError(_) => 400,
+            HttpError::MultipartError(_) => 400,
         }
     }
 }
@@ -283,11 +384,8 @@ struct Post {
     slug: String,
     text: String,
     title: String,
-}
-struct FileData {
-    filename: String,
-    content_type: String,
-    data: Vec<u8>,
+    filename: Option<String>,
+    file_data: Option<Vec<u8>>,
 }
 struct NavItem {
     title: String,
@@ -383,7 +481,11 @@ fn home_page_handler(req: &HttpRequest, state: &AppState) -> Result<Response, Ht
     let html = template.render()?;
     Ok(Response::html(200, html))
 }
-fn upload_post_handler(req: &HttpRequest, state: &mut AppState) -> Result<Response, HttpError> {
+
+fn upload_urlencoded_handler(
+    req: &HttpRequest,
+    state: &mut AppState,
+) -> Result<Response, HttpError> {
     let form_data = HttpRequest::parse_urlencoded(&req.body)
         .map_err(|e| HttpError::BadRequest("URL Encoding error".to_string()))?;
     let text = form_data
@@ -402,9 +504,131 @@ fn upload_post_handler(req: &HttpRequest, state: &mut AppState) -> Result<Respon
         slug: slug,
         text: text,
         title: title,
+        filename: None,
+        file_data: None,
     };
     state.posts.push(post);
     Ok(Response::redirect("/?upload_success=true"))
+}
+
+fn upload_multipart_handler(
+    req: &HttpRequest,
+    state: &mut AppState,
+) -> Result<Response, HttpError> {
+    let fields = req.parse_multipart()?;
+    let title = extract_text_field(&fields, "title")?;
+    let text = extract_text_field(&fields, "text")?;
+    let (filename, file_data) = match fields.get("image") {
+        Some(FormField::File { filename, data, .. }) => {
+            validate_image(data, filename)?;
+            (Some(filename.clone()), Some(data.clone()))
+        }
+        _ => (None, None),
+    };
+
+    let slug = slugify(&title);
+    validate_slug(&slug)?;
+    let id = state.posts.len() as u32 + 1;
+
+    let post = Post {
+        id,
+        slug,
+        text,
+        title,
+        filename,  // Option<String>
+        file_data, // Option<Vec<u8>>
+    };
+
+    state.posts.push(post);
+    Ok(Response::redirect("/?upload_success=true"))
+}
+
+fn validate_image(data: &[u8], filename: &str) -> Result<(), HttpError> {
+    const MAX_FILE_SIZE: usize = 10 * 1024 * 1024;
+    if data.len() > MAX_FILE_SIZE {
+        return Err(HttpError::BadRequest(format!(
+            "Max file size: {} mb",
+            MAX_FILE_SIZE / (1024 * 1024)
+        )));
+    }
+    let allowed_extensions = ["jpg", "jpeg", "png"];
+    let extension = filename.rsplit('.').next().unwrap_or("").to_lowercase();
+
+    if !allowed_extensions.contains(&extension.as_str()) {
+        return Err(HttpError::BadRequest(format!(
+            "Incorrect file extension: {}. U can try: {}",
+            extension,
+            allowed_extensions.join(", ")
+        )));
+    }
+    if data.len() < 8 {
+        return Err(HttpError::BadRequest(
+            "file too short to validate".to_string(),
+        ));
+    }
+
+    match extension.as_str() {
+        "png" => {
+            let png_signature: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
+            if data[0..8] != png_signature {
+                return Err(HttpError::BadRequest(
+                    "Incorrect signature of file.png".to_string(),
+                ));
+            }
+        }
+        "jpg" | "jpeg" => {
+            if data.len() < 2 {
+                return Err(HttpError::BadRequest(
+                    "File to short to validate signature JPEG".to_string(),
+                ));
+            }
+            let jpeg_signature: [u8; 2] = [255, 216];
+            if data[0..2] != jpeg_signature {
+                return Err(HttpError::BadRequest(
+                    "Incorrect signature of file.jpeg".to_string(),
+                ));
+            }
+        }
+        _ => {
+            return Err(HttpError::BadRequest("Unsupported extension".to_string()));
+        }
+    }
+
+    Ok(())
+}
+fn extract_text_field(
+    fields: &HashMap<String, multi_exp::FormField>,
+    field_name: &str,
+) -> Result<String, HttpError> {
+    match fields.get(field_name) {
+        Some(FormField::Text(text)) => Ok(text.clone()),
+        Some(FormField::File { .. }) => Err(HttpError::BadRequest(format!(
+            "Field '{}' should be text, not file",
+            field_name
+        ))),
+        None => Err(HttpError::BadRequest(format!(
+            "Missing required field: {}",
+            field_name
+        ))),
+    }
+}
+
+fn upload_post_handler(req: &HttpRequest, state: &mut AppState) -> Result<Response, HttpError> {
+    match req.content_type.as_deref() {
+        Some(content_type) if content_type.starts_with("multipart/form-data") => {
+            upload_multipart_handler(req, state)
+        }
+        Some(content_type) if content_type == "application/x-www-form-urlencoded" => {
+            upload_urlencoded_handler(req, state)
+        }
+        Some(content_type) => Err(HttpError::BadRequest(format!(
+            "Unsupported content type: {}",
+            content_type
+        ))),
+        None => Err(HttpError::BadRequest(
+            "Missing Content-Type header".to_string(),
+        )),
+    }
 }
 
 fn post_page_handler(
@@ -488,6 +712,24 @@ fn get_content_type(filename: &str) -> &'static str {
         _ => "application/octet-stream",
     }
 }
+fn file_handler(req: &HttpRequest, state: &AppState) -> Result<Response, HttpError> {
+    let slug = req
+        .path
+        .strip_prefix("/file/")
+        .ok_or_else(|| HttpError::NotFound("Invalid file path".to_string()))?;
+
+    let post = state
+        .find_post_by_slug(slug)
+        .ok_or_else(|| HttpError::NotFound(format!("Post {} not found", slug)))?;
+
+    match (&post.filename, &post.file_data) {
+        (Some(filename), Some(data)) => {
+            let content_type = get_content_type(filename);
+            Ok(Response::binary(200, data.clone(), content_type))
+        }
+        _ => Err(HttpError::NotFound("No file attached".to_string())),
+    }
+}
 
 fn handle_connection(mut stream: TcpStream, state: Rc<Mutex<AppState>>) -> Result<(), HttpError> {
     let request = match HttpRequest::from_tcp_stream(&mut stream) {
@@ -502,9 +744,9 @@ fn handle_connection(mut stream: TcpStream, state: Rc<Mutex<AppState>>) -> Resul
     let mut state_guard = state
         .lock()
         .map_err(|e| HttpError::InternalServerError(format!("Mutex poison: {}", e)))?;
-
-    let result: Result<Response, HttpError> = match (request.method.as_str(), request.path.as_str())
-    {
+    let state_ref = &*state_guard;
+    let state_mut = &mut *state_guard;
+    let result = match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/") => home_page_handler(&request, &state_guard),
         ("POST", "/") => upload_post_handler(&request, &mut state_guard),
         ("GET", path) if path.starts_with("/static/") => static_handler(&request),
@@ -512,6 +754,7 @@ fn handle_connection(mut stream: TcpStream, state: Rc<Mutex<AppState>>) -> Resul
             Some(slug) if !slug.is_empty() => post_page_handler(&request, slug, &state_guard),
             _ => not_found_handler(&request, &state_guard),
         },
+        ("GET", path) if path.starts_with("/file/") => file_handler(&request, &state_guard),
         _ => not_found_handler(&request, &state_guard),
     };
 
@@ -533,4 +776,9 @@ fn handle_connection(mut stream: TcpStream, state: Rc<Mutex<AppState>>) -> Resul
         }
     }
     Ok(())
+}
+impl From<anyhow::Error> for HttpError {
+    fn from(err: anyhow::Error) -> Self {
+        HttpError::MultipartError(err.to_string())
+    }
 }

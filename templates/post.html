@@ -5,11 +5,18 @@
 {% block content %}
     <article class="post-page">
         <header class="post-page-header">
-        <h1 class="post-page-title">{{ post.title }}</h1>
+            <h1 class="post-page-title">{{ post.title }}</h1>
+        </header>  
         
-        <div class="post-page-body">
+      {% if let Some(filename) = post.filename %}
+     <div class="post-attachment">
+    <h3 class="attach-file">Attached file:</h3>
+    <img class="image-crate" src="/file/{{ post.slug }}" alt="{{ filename }}" style="max-width: 100%;">
+     </div>
+{% endif %}
+        <div class="post-page-body">  
             {{ post.text }}
-        </div>
+        </div>  
         
         <div class="post-meta">
             <p>Slug: {{ post.slug }}</p>

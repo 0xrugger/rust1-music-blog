@@ -10,10 +10,13 @@
 <div class="styled-containers">
     <h2 class="create-text">Create new post</h2>
     <div id="uploadForm" class="glass-borders">
-        <form method="POST" action="/" enctype="application/x-www-form-urlencoded">
+        <form method="POST" action="/" enctype="multipart/form-data">
             <div class="form-group">
             <input type="text" name="title" placeholder="Title required" required 
             class="form-input text-input">
+            </div>
+            <div class="form-group">
+            <input type="file" name="image" accept=".jpg,.jpeg,.png,.heic" class="form-input">
             </div>
             <div class="form-group">
             <textarea 
