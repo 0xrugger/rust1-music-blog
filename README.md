@@ -68,4 +68,4 @@ mkdir -p posts images
 # Run the server
 cargo run
 
-# Visit http://localhost:7878
+# Visit http://localhost:8080
